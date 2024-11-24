@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { TabType } from '@/app/page';
 
 interface Preferences {
   cuisine: string;
@@ -13,12 +14,13 @@ interface Preferences {
 
 interface RecommendationsListProps {
   preferences: Preferences;
+  activeTab: TabType;
 }
 
 interface Recommendation {
   id: string;
   name: string;
-  type: 'restaurant' | 'event';
+  type: 'restaurant' | 'event' | 'place';
   rating: number;
   price?: string;
   image_url?: string;
@@ -27,9 +29,11 @@ interface Recommendation {
     address1: string;
     city: string;
   };
+  start_date?: string;
+  end_date?: string;
 }
 
-export default function RecommendationsList({ preferences }: RecommendationsListProps) {
+export default function RecommendationsList({ preferences, activeTab }: RecommendationsListProps) {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -46,7 +50,10 @@ export default function RecommendationsList({ preferences }: RecommendationsList
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(preferences),
+          body: JSON.stringify({
+            ...preferences,
+            activeTab, // Pass the active tab to the API
+          }),
         });
 
         const data = await response.json();
@@ -55,8 +62,25 @@ export default function RecommendationsList({ preferences }: RecommendationsList
           throw new Error(data.error || 'Failed to fetch recommendations');
         }
 
-        console.log('Received recommendations:', data);
-        setRecommendations(data);
+        // Filter recommendations based on active tab and criteria
+        let filteredData = data.filter((item: Recommendation) => {
+          switch (activeTab) {
+            case 'restaurants':
+              return item.type === 'restaurant' && (!item.rating || item.rating >= 4.0);
+            case 'events':
+              return item.type === 'event' && 
+                !item.name.toLowerCase().includes('pub crawl') &&
+                !item.name.toLowerCase().includes('bar crawl') &&
+                !item.name.toLowerCase().includes('drag brunch');
+            case 'activities':
+              return item.type === 'place';
+            default:
+              return true;
+          }
+        });
+
+        console.log('Filtered recommendations:', filteredData);
+        setRecommendations(filteredData);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load recommendations. Please try again.');
         console.error('Error fetching recommendations:', err);
@@ -65,13 +89,19 @@ export default function RecommendationsList({ preferences }: RecommendationsList
       }
     };
 
-    // Only fetch if we have location and either cuisine or eventType
-    if (preferences.latitude && preferences.longitude && (preferences.cuisine || preferences.eventType)) {
-      fetchRecommendations();
-    } else {
-      setRecommendations([]);
+    // Fetch based on active tab conditions
+    if (preferences.latitude && preferences.longitude) {
+      if (
+        (activeTab === 'restaurants' && preferences.cuisine) ||
+        (activeTab === 'events' && preferences.eventType) ||
+        (activeTab === 'activities' && preferences.eventType)
+      ) {
+        fetchRecommendations();
+      } else {
+        setRecommendations([]);
+      }
     }
-  }, [preferences]);
+  }, [preferences, activeTab]);
 
   if (loading) {
     return (
@@ -92,7 +122,9 @@ export default function RecommendationsList({ preferences }: RecommendationsList
   if (recommendations.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
-        Select your preferences to see recommendations
+        {preferences.latitude && preferences.longitude ? 
+          'Select your preferences to see recommendations' :
+          'Getting your location...'}
       </div>
     );
   }
@@ -111,17 +143,28 @@ export default function RecommendationsList({ preferences }: RecommendationsList
           <div className="p-4">
             <h3 className="font-semibold text-lg mb-2">{item.name}</h3>
             <p className="text-gray-600 text-sm mb-2">
-              {item.location.address1}, {item.location.city}
+              {item.location.address1}
+              {item.location.city && `, ${item.location.city}`}
             </p>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className="text-yellow-400 mr-1">★</span>
-                <span className="text-sm text-gray-600">{item.rating}</span>
+                {item.rating && (
+                  <>
+                    <span className="text-yellow-400 mr-1">★</span>
+                    <span className="text-sm text-gray-600">{item.rating}</span>
+                  </>
+                )}
               </div>
               {item.price && (
                 <span className="text-green-600 text-sm">{item.price}</span>
               )}
             </div>
+            {item.start_date && (
+              <p className="text-sm text-gray-600 mt-2">
+                {new Date(item.start_date).toLocaleDateString()} at{' '}
+                {new Date(item.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
             <a
               href={item.url}
               target="_blank"

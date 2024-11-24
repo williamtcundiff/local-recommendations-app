@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { TabType } from '@/app/page';
 
 // API Keys from environment variables
 const YELP_API_KEY = process.env.YELP_API_KEY;
@@ -9,13 +10,13 @@ async function getRestaurants(cuisine: string, price: string, radius: number, la
   console.log('Fetching restaurants with params:', { cuisine, price, radius, latitude, longitude });
   
   const params = new URLSearchParams({
-    term: cuisine || 'restaurants',
+    term: `${cuisine} restaurants`,
     latitude,
     longitude,
     radius: radius.toString(),
     price: price || '1,2,3,4',
     sort_by: 'rating',
-    limit: '10',
+    limit: '50', // Increased limit to get more high-rated options
   });
 
   try {
@@ -37,19 +38,22 @@ async function getRestaurants(cuisine: string, price: string, radius: number, la
     const data = await response.json();
     console.log('Yelp API response:', data);
     
-    return data.businesses.map((business: any) => ({
-      id: business.id,
-      name: business.name,
-      type: 'restaurant',
-      rating: business.rating,
-      price: business.price,
-      image_url: business.image_url,
-      url: business.url,
-      location: {
-        address1: business.location.address1,
-        city: business.location.city,
-      },
-    }));
+    // Filter for restaurants with rating >= 4.0
+    return data.businesses
+      .filter((business: any) => business.rating >= 4.0)
+      .map((business: any) => ({
+        id: business.id,
+        name: business.name,
+        type: 'restaurant',
+        rating: business.rating,
+        price: business.price,
+        image_url: business.image_url,
+        url: business.url,
+        location: {
+          address1: business.location.address1,
+          city: business.location.city,
+        },
+      }));
   } catch (error) {
     console.error('Error in getRestaurants:', error);
     throw error;
@@ -87,20 +91,28 @@ async function getEvents(eventType: string, radius: number, latitude: string, lo
     const eventbriteData = await eventbriteResponse.json();
     console.log('Eventbrite API response:', eventbriteData);
     
-    return eventbriteData.events.map((event: any) => ({
-      id: event.id,
-      name: event.name.text,
-      type: 'event',
-      rating: null,
-      image_url: event.logo?.url,
-      url: event.url,
-      location: {
-        address1: event.venue?.address?.address_1 || 'Location TBA',
-        city: event.venue?.address?.city || '',
-      },
-      start_date: event.start.local,
-      end_date: event.end.local,
-    }));
+    // Filter out unwanted event types
+    return eventbriteData.events
+      .filter((event: any) => {
+        const name = event.name.text.toLowerCase();
+        return !name.includes('pub crawl') &&
+               !name.includes('bar crawl') &&
+               !name.includes('drag brunch');
+      })
+      .map((event: any) => ({
+        id: event.id,
+        name: event.name.text,
+        type: 'event',
+        rating: null,
+        image_url: event.logo?.url,
+        url: event.url,
+        location: {
+          address1: event.venue?.address?.address_1 || 'Location TBA',
+          city: event.venue?.address?.city || '',
+        },
+        start_date: event.start.local,
+        end_date: event.end.local,
+      }));
   } catch (error) {
     console.error('Error in getEvents:', error);
     throw error;
@@ -155,11 +167,9 @@ async function getPlaces(type: string, radius: number, latitude: string, longitu
 
 export async function POST(request: Request) {
   try {
-    const preferences = await request.json();
-    console.log('Received preferences:', preferences);
+    const { cuisine, price, radius, eventType, latitude, longitude, activeTab } = await request.json();
+    console.log('Received request:', { cuisine, price, radius, eventType, latitude, longitude, activeTab });
     
-    const { cuisine, price, radius, eventType, latitude, longitude } = preferences;
-
     if (!latitude || !longitude) {
       return NextResponse.json(
         { error: 'Location is required' },
@@ -167,30 +177,33 @@ export async function POST(request: Request) {
       );
     }
 
-    // Fetch data from all APIs in parallel
-    const results = await Promise.allSettled([
-      cuisine ? getRestaurants(cuisine, price, radius, latitude, longitude) : Promise.resolve([]),
-      eventType ? getEvents(eventType, radius, latitude, longitude) : Promise.resolve([]),
-      eventType ? getPlaces(eventType, radius, latitude, longitude) : Promise.resolve([]),
-    ]);
+    let results: any[] = [];
 
-    console.log('API results:', results);
+    // Only fetch data based on the active tab
+    switch (activeTab as TabType) {
+      case 'restaurants':
+        if (cuisine) {
+          results = await getRestaurants(cuisine, price, radius, latitude, longitude);
+        }
+        break;
+      case 'events':
+        if (eventType) {
+          results = await getEvents(eventType, radius, latitude, longitude);
+        }
+        break;
+      case 'activities':
+        if (eventType) {
+          results = await getPlaces(eventType, radius, latitude, longitude);
+        }
+        break;
+    }
 
-    // Handle results and any errors
-    const successfulResults = results.reduce((acc: any[], result: PromiseSettledResult<any>) => {
-      if (result.status === 'fulfilled') {
-        return [...acc, ...result.value];
-      }
-      console.error('API call failed:', result);
-      return acc;
-    }, []);
-
-    // Sort and return results
-    const sortedRecommendations = successfulResults.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    // Sort results by rating (if available)
+    const sortedResults = results.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     
-    console.log('Returning recommendations:', sortedRecommendations.slice(0, 20));
+    console.log('Returning results:', sortedResults.slice(0, 20));
     
-    return NextResponse.json(sortedRecommendations.slice(0, 20));
+    return NextResponse.json(sortedResults.slice(0, 20));
   } catch (error) {
     console.error('Error in recommendations API:', error);
     return NextResponse.json(
