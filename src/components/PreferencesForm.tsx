@@ -17,9 +17,12 @@ interface PreferencesFormProps {
 }
 
 export default function PreferencesForm({ preferences, setPreferences }: PreferencesFormProps) {
+  const [locationStatus, setLocationStatus] = useState<'loading' | 'error' | 'success'>('loading');
+
   useEffect(() => {
     // Get user's location when component mounts
     if (navigator.geolocation) {
+      setLocationStatus('loading');
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setPreferences({
@@ -27,17 +30,39 @@ export default function PreferencesForm({ preferences, setPreferences }: Prefere
             latitude: position.coords.latitude.toString(),
             longitude: position.coords.longitude.toString(),
           });
+          setLocationStatus('success');
         },
         (error) => {
           console.error('Error getting location:', error);
+          setLocationStatus('error');
         }
       );
+    } else {
+      setLocationStatus('error');
     }
   }, []);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md mb-8">
       <h2 className="text-2xl font-semibold mb-4">Your Preferences</h2>
+      
+      {/* Location Status */}
+      {locationStatus === 'loading' && (
+        <div className="mb-4 p-2 bg-blue-50 text-blue-700 rounded">
+          Getting your location...
+        </div>
+      )}
+      {locationStatus === 'error' && (
+        <div className="mb-4 p-2 bg-red-50 text-red-700 rounded">
+          Unable to get your location. Please allow location access and refresh the page.
+        </div>
+      )}
+      {locationStatus === 'success' && (
+        <div className="mb-4 p-2 bg-green-50 text-green-700 rounded">
+          Location found! Showing recommendations near you.
+        </div>
+      )}
+
       <form className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">

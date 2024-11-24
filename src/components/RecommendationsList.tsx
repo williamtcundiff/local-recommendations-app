@@ -7,6 +7,8 @@ interface Preferences {
   price: string;
   radius: number;
   eventType: string;
+  latitude: string;
+  longitude: string;
 }
 
 interface RecommendationsListProps {
@@ -38,7 +40,7 @@ export default function RecommendationsList({ preferences }: RecommendationsList
       setError('');
       
       try {
-        // We'll implement this API route later
+        console.log('Fetching with preferences:', preferences);
         const response = await fetch('/api/recommendations', {
           method: 'POST',
           headers: {
@@ -47,23 +49,27 @@ export default function RecommendationsList({ preferences }: RecommendationsList
           body: JSON.stringify(preferences),
         });
 
+        const data = await response.json();
+        
         if (!response.ok) {
-          throw new Error('Failed to fetch recommendations');
+          throw new Error(data.error || 'Failed to fetch recommendations');
         }
 
-        const data = await response.json();
+        console.log('Received recommendations:', data);
         setRecommendations(data);
       } catch (err) {
-        setError('Failed to load recommendations. Please try again.');
+        setError(err instanceof Error ? err.message : 'Failed to load recommendations. Please try again.');
         console.error('Error fetching recommendations:', err);
       } finally {
         setLoading(false);
       }
     };
 
-    // Only fetch if we have some preferences set
-    if (preferences.cuisine || preferences.eventType) {
+    // Only fetch if we have location and either cuisine or eventType
+    if (preferences.latitude && preferences.longitude && (preferences.cuisine || preferences.eventType)) {
       fetchRecommendations();
+    } else {
+      setRecommendations([]);
     }
   }, [preferences]);
 
